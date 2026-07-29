@@ -1,0 +1,57 @@
+name: 오늘도 덥습니다
+
+on:
+  schedule:
+    # 30분마다 폴링. cron은 UTC 기준이라 KST 06:00~23:30 구간에 해당한다.
+    # GitHub Actions의 스케줄은 정시에 뜨지 않고 수 분~수십 분 밀릴 수 있다.
+    - cron: "*/30 21-23,0-14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "전송하지 않고 페이로드만 출력"
+        type: boolean
+        default: false
+
+concurrency:
+  group: heat-alert
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 중복 발송 방지용 state 파일 커밋
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 특보 감지 및 발송
+        env:
+          KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
+          MM_WEBHOOK_URL: ${{ secrets.MM_WEBHOOK_URL }}
+          TZ: Asia/Seoul
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python main.py --dry-run
+          else
+            python main.py
+          fi
+
+      - name: 발송 기록 커밋
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if git diff --quiet -- state/sent.json; then
+            echo "변경 없음"
+            exit 0
+          fi
+          git config user.name "heat-alert-bot"
+          git config user.email "actions@github.com"
+          git add state/sent.json
+          git commit -m "chore: 발송 기록 갱신 [skip ci]"
+          git push
