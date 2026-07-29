@@ -76,11 +76,7 @@ def build_events(
                 region=region.name,
                 issued_at=stamp,
                 key=f"{today}:active:{region.name}:{kind}",
-                detail=(
-                    f"{region.name}에 {kind}가 새로 발효됐습니다."
-                    if is_new
-                    else f"{region.name}에 {kind}가 발효 중입니다."
-                ),
+                detail=f"{kind} {'신규 발효' if is_new else '발효 중'}",
                 started_today=is_new,
             )
         )
@@ -95,7 +91,7 @@ def build_events(
                 region=region.name,
                 issued_at=stamp,
                 key=f"{today}:release:{region.name}:{kind}",
-                detail=f"{region.name}의 {kind}가 해제되었습니다.",
+                detail=f"{kind} 해제",
             )
         )
     return events

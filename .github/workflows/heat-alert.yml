@@ -13,7 +13,8 @@ on:
         default: dry-run
         options:
           - dry-run # 감지만 하고 전송하지 않음
-          - send # 실제 발송
+          - send # 실제 발송 (오늘 이미 보냈으면 건너뜀)
+          - send-force # 오늘 이미 보냈어도 다시 발송
           - probe # 특보 목록 원본 확인 (파싱이 의심될 때)
           - probe-msg # 특보 통보문 본문 확인 (지역 상세)
 
@@ -44,10 +45,11 @@ jobs:
         # 스케줄 실행에는 inputs가 없으므로 기본값 send로 떨어진다.
         run: |
           case "${{ inputs.mode || 'send' }}" in
-            probe)      python probe.py warn ;;
-            probe-msg)  python probe.py msg ;;
-            dry-run)    python main.py --dry-run ;;
-            *)          python main.py ;;
+            probe)       python probe.py warn ;;
+            probe-msg)   python probe.py msg ;;
+            dry-run)     python main.py --dry-run ;;
+            send-force)  python main.py --force ;;
+            *)           python main.py ;;
           esac
 
       - name: 발송 기록 커밋

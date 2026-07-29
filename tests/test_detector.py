@@ -161,13 +161,13 @@ class TestCard:
         attachment = build_attachment(event, NOW)
         assert attachment["color"] == "#8B0000"
         assert "🚨" in attachment["title"]
-        assert "중단" in attachment["text"]
+        assert "멈추기" in attachment["text"]
 
     def test_active_warning_card_is_red_with_guide(self):
         event = build_events(WARNING_T6, None, GANGNAM, None, NOW)[0]
         attachment = build_attachment(event, NOW)
         assert attachment["color"] == "#D0021B"
-        assert "이렇게 하세요" in attachment["text"]
+        assert "이렇게 해요" in attachment["text"]
 
     def test_release_card_is_green(self):
         event = build_events(CLEAR_T6, WARNING_T6, GANGNAM, None, NOW)[0]
@@ -179,11 +179,10 @@ class TestCard:
         assert "한여름" in attachment["title"]
         assert attachment["color"] == "#F5A623"
 
-    def test_forecast_card_omits_warning_field(self):
-        event = forecast_event(GANGNAM, {"today_max": 31.0}, NOW)
+    def test_only_temperature_fields_remain(self):
+        event = forecast_event(GANGNAM, {"today_max": 31.0, "today_min": 24.0}, NOW)
         titles = [f["title"] for f in build_attachment(event, NOW)["fields"]]
-        assert "특보" not in titles
-        assert "낮 최고" in titles
+        assert titles == ["낮 최고", "아침 최저"]
 
     def test_forecast_card_survives_missing_temperature(self):
         attachment = build_attachment(forecast_event(GANGNAM, {}, NOW), NOW)
@@ -192,11 +191,23 @@ class TestCard:
 
     def test_started_today_shows_badge(self):
         event = build_events(WARNING_T6, CLEAR_T6, GANGNAM, None, NOW)[0]
-        assert "오늘 발효" in build_attachment(event, NOW)["title"]
+        assert "방금 떴어요" in build_attachment(event, NOW)["title"]
 
-    def test_region_name_is_shown(self):
+    def test_region_is_never_displayed(self):
+        # 읽는 사람이 정해져 있으므로 지역은 카드에 나오지 않는다.
+        for event in (
+            build_events(WARNING_T6, None, GANGNAM, None, NOW)[0],
+            build_events(CLEAR_T6, WARNING_T6, GANGNAM, None, NOW)[0],
+            forecast_event(GANGNAM, {"today_max": 31.0}, NOW),
+        ):
+            attachment = build_attachment(event, NOW)
+            rendered = attachment["title"] + attachment["text"] + str(attachment["fields"])
+            assert "강남" not in rendered and "서울" not in rendered
+
+    def test_region_still_scopes_the_dedup_key(self):
+        # 표시만 빼는 것이고, 중복 방지 키에는 지역이 남아야 한다.
         event = build_events(WARNING_T6, None, GANGNAM, None, NOW)[0]
-        assert "서울 강남구" in build_attachment(event, NOW)["title"]
+        assert "서울 강남구" in event.key
 
     def test_payload_bundles_all_events(self):
         events = build_events(WARNING_T6, ADVISORY_T6, GANGNAM, None, NOW)
