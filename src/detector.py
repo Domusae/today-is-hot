@@ -29,17 +29,22 @@ RELEASE = "해제"
 class HeatEvent:
     """알림 한 건."""
 
-    kind: str  # 폭염주의보 / 폭염경보
-    action: str  # 발효 중 / 해제
+    kind: str  # 폭염주의보 / 폭염경보 / 예보 단계 이름
+    action: str  # 발효 중 / 해제 / 예보
     region: str
     issued_at: str  # 표시용 시각 문자열
     key: str  # 중복 발송 방지용 고유키 (하루 1회 발송되도록 날짜 포함)
     detail: str = ""
     temps: dict[str, float] = field(default_factory=dict)
+    started_today: bool = False  # 오늘 새로 발효된 특보인지
 
     @property
     def is_release(self) -> bool:
         return self.action == RELEASE
+
+    @property
+    def is_warning(self) -> bool:
+        return self.kind.startswith("폭염")
 
 
 def _parse_tm_fc(tm_fc) -> datetime | None:
@@ -99,6 +104,7 @@ def build_events(
     events: list[HeatEvent] = []
 
     for kind, at in sorted(current_warnings(items).items()):
+        started_today = at.strftime("%Y%m%d") == today
         events.append(
             HeatEvent(
                 kind=kind,
@@ -106,7 +112,12 @@ def build_events(
                 region=region.name,
                 issued_at=at.strftime("%m월 %d일 %H시 %M분 발효"),
                 key=f"{today}:active:{region.name}:{kind}",
-                detail=f"{region.name}에 {kind}가 발효 중입니다.",
+                detail=(
+                    f"조금 전 {region.name}에 {kind}가 발효됐습니다."
+                    if started_today
+                    else f"{region.name}에 {kind}가 계속 발효 중입니다."
+                ),
+                started_today=started_today,
             )
         )
 
@@ -122,6 +133,24 @@ def build_events(
             )
         )
     return events
+
+
+def forecast_event(
+    region: Region, temps: dict[str, float], now: datetime | None = None
+) -> HeatEvent:
+    """특보가 없는 날에도 내보낼 '오늘의 더위' 카드.
+
+    등급과 문구는 표현 계층(card.py)이 기온을 보고 정한다.
+    """
+    now = now or datetime.now()
+    return HeatEvent(
+        kind="오늘의 더위",
+        action="예보",
+        region=region.name,
+        issued_at=now.strftime("%m월 %d일"),
+        key=f"{now:%Y%m%d}:daily:{region.name}",
+        temps=temps,
+    )
 
 
 def _parse_forecast(items: list[dict]) -> dict[str, dict[str, dict[str, str]]]:

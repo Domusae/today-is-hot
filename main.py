@@ -13,7 +13,7 @@ import sys
 from dataclasses import replace
 
 from src import card, detector, kma, notifier, state
-from src.config import REGIONS, load_settings
+from src.config import REGIONS, WARNING_LOOKBACK_DAYS, load_settings
 from src.detector import HeatEvent
 
 
@@ -23,10 +23,14 @@ def collect_events(service_key: str) -> list[HeatEvent]:
         forecast = kma.fetch_forecast(service_key, region.nx, region.ny)
         temps = detector.summarize_temps(forecast)
 
-        warnings = kma.fetch_warnings(service_key, region.stn_id, days=6)
-        for event in detector.build_events(warnings, region):
+        warnings = kma.fetch_warnings(service_key, region.stn_id, WARNING_LOOKBACK_DAYS)
+        found = [
             # 특보 카드에도 기온을 같이 실어 보여준다.
-            events.append(replace(event, temps=temps))
+            replace(event, temps=temps)
+            for event in detector.build_events(warnings, region)
+        ]
+        # 특보가 없는 날에도 가벼운 더위 안내는 매일 나간다.
+        events.extend(found or [detector.forecast_event(region, temps)])
     return events
 
 
@@ -35,20 +39,30 @@ def demo_events() -> list[HeatEvent]:
         HeatEvent(
             kind="폭염경보",
             action="발효 중",
-            region="서울 강남구",
+            region="서울",
             issued_at="07월 29일 10시 00분 발효",
             key="demo:1",
-            detail="서울 강남구에 폭염경보가 발효 중입니다.",
+            detail="조금 전 서울에 폭염경보가 발효됐습니다.",
             temps={"today_max": 36.0, "today_min": 26.0},
+            started_today=True,
         ),
         HeatEvent(
             kind="폭염주의보",
             action="해제",
-            region="서울 강남구",
+            region="서울",
             issued_at="07월 28일 16시 00분 해제",
             key="demo:2",
-            detail="서울 강남구의 폭염주의보가 해제되었습니다.",
+            detail="서울의 폭염주의보가 해제되었습니다.",
             temps={"today_max": 34.0, "today_min": 25.0},
+        ),
+        # 특보가 없는 날 카드
+        HeatEvent(
+            kind="오늘의 더위",
+            action="예보",
+            region="서울",
+            issued_at="07월 30일",
+            key="demo:3",
+            temps={"today_max": 31.0, "today_min": 24.0},
         ),
     ]
 

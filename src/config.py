@@ -8,6 +8,12 @@ KMA_BASE = "https://apis.data.go.kr/1360000"
 HEAT_ADVISORY_C = 33.0
 HEAT_WARNING_C = 35.0
 
+# 특보 발효 여부를 판정할 때 며칠치 이력을 재생할지.
+# 폭염경보는 며칠씩 이어지므로 당일(0)만 보면 어제 발효돼 오늘도 유효한 특보를 놓친다.
+# "오늘 새로 발효된 건"은 별도로 표시되므로, 정확도를 위해 넉넉히 본다.
+# 기상청 제한상 최대 6일까지만 가능하다.
+WARNING_LOOKBACK_DAYS = 6
+
 
 @dataclass(frozen=True)
 class Region:

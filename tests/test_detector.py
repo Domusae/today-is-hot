@@ -3,9 +3,11 @@ from datetime import datetime
 
 from src.card import build_attachment, build_payload
 from src.config import Region
+from src.card import _forecast_level
 from src.detector import (
     build_events,
     current_warnings,
+    forecast_event,
     parse_segments,
     recent_releases,
     summarize_temps,
@@ -164,6 +166,25 @@ class TestSummarizeTemps:
         assert summarize_temps([fcst("20260729", "1500", "TMP", "33")], NOW) == {}
 
 
+class TestForecastLevels:
+    def test_bands_are_ordered_by_temperature(self):
+        names = [_forecast_level({"today_max": t})[0] for t in (36, 34, 31, 29, 22)]
+        assert names == ["가마솥", "한여름", "더움", "살짝 더움", "선선"]
+
+    def test_boundary_is_inclusive(self):
+        assert _forecast_level({"today_max": 35.0})[0] == "가마솥"
+        assert _forecast_level({"today_max": 34.9})[0] == "한여름"
+
+    def test_missing_temperature_falls_back(self):
+        assert _forecast_level({})[0] == "기온 미확인"
+
+    def test_daily_key_is_once_per_day(self):
+        a = forecast_event(GANGNAM, {}, datetime(2026, 7, 29, 9, 0))
+        b = forecast_event(GANGNAM, {}, datetime(2026, 7, 29, 18, 0))
+        c = forecast_event(GANGNAM, {}, datetime(2026, 7, 30, 9, 0))
+        assert a.key == b.key != c.key
+
+
 class TestState:
     def test_filter_new_removes_already_sent(self):
         events = build_events([warn(202607291000, "폭염경보 발표", 100)], GANGNAM, NOW)
@@ -190,6 +211,34 @@ class TestCard:
         event = build_events(items, GANGNAM, NOW)[0]
         assert event.is_release
         assert build_attachment(event)["color"] == "#2FA84F"
+
+    def test_forecast_card_has_playful_headline(self):
+        event = forecast_event(GANGNAM, {"today_max": 34.0}, NOW)
+        attachment = build_attachment(event)
+        assert "한여름" in attachment["title"]
+        assert "오늘도 덥습니다" in attachment["text"]
+        assert attachment["color"] == "#F5A623"
+
+    def test_forecast_card_omits_warning_field(self):
+        event = forecast_event(GANGNAM, {"today_max": 31.0}, NOW)
+        titles = [f["title"] for f in build_attachment(event)["fields"]]
+        assert "특보" not in titles
+        assert "낮 최고" in titles
+
+    def test_forecast_card_survives_missing_temperature(self):
+        attachment = build_attachment(forecast_event(GANGNAM, {}, NOW))
+        assert "기온 미확인" in attachment["title"]
+        assert attachment["text"]  # 빈 카드가 나가지 않는다
+
+    def test_started_today_shows_badge(self):
+        event = build_events([warn(202607290800, "폭염경보 발표", 100)], GANGNAM, NOW)[0]
+        assert event.started_today
+        assert "오늘 발효" in build_attachment(event)["title"]
+
+    def test_continuing_warning_has_no_badge(self):
+        event = build_events([warn(202607230800, "폭염경보 발표", 90)], GANGNAM, NOW)[0]
+        assert not event.started_today
+        assert "오늘 발효" not in build_attachment(event)["title"]
 
     def test_payload_bundles_all_events(self):
         items = [
