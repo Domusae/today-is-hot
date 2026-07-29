@@ -69,6 +69,18 @@ def fetch_warnings(service_key: str, stn_id: str, days: int = 2) -> list[dict]:
     return _items(body)
 
 
+def fetch_warning_msg(service_key: str, stn_id: str, tm_fc) -> list[dict]:
+    """특보 통보문(본문)을 조회한다. 지역별 상세가 여기에 들어있다."""
+    body = _get(
+        "WthrWrnInfoService/getWthrWrnMsg",
+        service_key,
+        numOfRows=10,
+        stnId=stn_id,
+        tmFc=tm_fc,
+    )
+    return _items(body)
+
+
 def base_datetime(now: datetime | None = None) -> tuple[str, str]:
     """현재 시각 기준으로 사용할 단기예보 발표일자/발표시각을 고른다."""
     now = (now or datetime.now()) - FCST_PUBLISH_DELAY

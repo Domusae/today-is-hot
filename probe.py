@@ -22,8 +22,19 @@ def main() -> int:
     region = REGIONS[0]
 
     if what == "warn":
-        items = kma.fetch_warnings(settings.kma_service_key, region.stn_id, days=7)
-        print(f"# 기상특보 {len(items)}건 (stnId={region.stn_id}, 최근 7일)")
+        items = kma.fetch_warnings(settings.kma_service_key, region.stn_id, days=6)
+        print(f"# 기상특보 {len(items)}건 (stnId={region.stn_id}, 최근 6일)")
+    elif what == "msg":
+        # 가장 최근 특보의 통보문 본문을 본다. 지역 상세가 있는지 확인용.
+        warnings = kma.fetch_warnings(settings.kma_service_key, region.stn_id, days=6)
+        if not warnings:
+            print("# 최근 특보가 없습니다.")
+            return 0
+        latest = max(warnings, key=lambda w: int(w.get("tmFc", 0)))
+        print(f"# 통보문 tmFc={latest.get('tmFc')} / {latest.get('title')}")
+        items = kma.fetch_warning_msg(
+            settings.kma_service_key, region.stn_id, latest.get("tmFc")
+        )
     elif what == "forecast":
         items = kma.fetch_forecast(settings.kma_service_key, region.nx, region.ny)[:40]
         print(f"# 단기예보 상위 40건 (nx={region.nx}, ny={region.ny})")
