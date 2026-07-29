@@ -2,9 +2,9 @@ name: 오늘도 덥습니다
 
 on:
   schedule:
-    # 30분마다 폴링. cron은 UTC 기준이라 KST 06:00~23:30 구간에 해당한다.
+    # 매일 아침 9시(KST) 1회. cron은 UTC 기준이라 00:00 UTC = 09:00 KST.
     # GitHub Actions의 스케줄은 정시에 뜨지 않고 수 분~수십 분 밀릴 수 있다.
-    - cron: "*/30 21-23,0-14 * * *"
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       mode:

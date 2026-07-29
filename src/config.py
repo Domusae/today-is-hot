@@ -13,28 +13,22 @@ HEAT_WARNING_C = 35.0
 class Region:
     """감시 대상 지역.
 
-    stn_id : 기상특보 발표관서 코드 (108=전국/본청, 133=대전, 108 외 지역은 기상청 문서 참조)
+    특보 제목에는 지역명이 들어있지 않고 stn_id로만 구분되므로,
+    지역 필터링은 전적으로 stn_id에 의존한다.
+
+    stn_id : 기상특보 발표관서 코드 (108=서울, 133=대전, 159=부산 ...)
     nx, ny : 단기예보 격자 좌표
-    keywords: 특보 통보문 제목에서 이 지역을 식별할 문자열
     """
 
     name: str
     stn_id: str
     nx: int
     ny: int
-    keywords: tuple[str, ...]
 
 
-# 기본값: 대전 (SSAFY 대전캠퍼스 기준). 필요하면 여기만 고치면 됩니다.
-REGIONS = (
-    Region(
-        name="대전",
-        stn_id="133",
-        nx=67,
-        ny=100,
-        keywords=("대전", "세종", "충남", "충청남도"),
-    ),
-)
+# 기본값: 서울 강남구 역삼동. 다른 지역으로 바꾸려면 여기만 고치면 됩니다.
+# nx/ny는 위경도(37.5006, 127.0364)를 기상청 격자로 변환한 값입니다.
+REGIONS = (Region(name="서울 강남구", stn_id="108", nx=61, ny=125),)
 
 
 @dataclass(frozen=True)

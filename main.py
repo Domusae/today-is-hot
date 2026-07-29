@@ -23,8 +23,8 @@ def collect_events(service_key: str) -> list[HeatEvent]:
         forecast = kma.fetch_forecast(service_key, region.nx, region.ny)
         temps = detector.summarize_temps(forecast)
 
-        warnings = kma.fetch_warnings(service_key, region.stn_id)
-        for event in detector.detect_heat_warnings(warnings, region):
+        warnings = kma.fetch_warnings(service_key, region.stn_id, days=6)
+        for event in detector.build_events(warnings, region):
             # 특보 카드에도 기온을 같이 실어 보여준다.
             events.append(replace(event, temps=temps))
     return events
@@ -34,20 +34,20 @@ def demo_events() -> list[HeatEvent]:
     return [
         HeatEvent(
             kind="폭염경보",
-            action="발표",
-            region="대전",
-            issued_at="07월 29일 11시 00분",
+            action="발효 중",
+            region="서울 강남구",
+            issued_at="07월 29일 10시 00분 발효",
             key="demo:1",
-            detail="[기상특보] 대전, 세종, 충남 폭염경보 발표",
+            detail="서울 강남구에 폭염경보가 발효 중입니다.",
             temps={"today_max": 36.0, "today_min": 26.0},
         ),
         HeatEvent(
             kind="폭염주의보",
-            action="발표",
-            region="대전",
-            issued_at="07월 28일 11시 00분",
+            action="해제",
+            region="서울 강남구",
+            issued_at="07월 28일 16시 00분 해제",
             key="demo:2",
-            detail="[기상특보] 대전, 세종, 충남 폭염주의보 발표",
+            detail="서울 강남구의 폭염주의보가 해제되었습니다.",
             temps={"today_max": 34.0, "today_min": 25.0},
         ),
     ]
