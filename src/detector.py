@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .comfort import apparent_temperature
 from .config import Region
 from .status import heat_warnings_for
 
@@ -136,13 +135,13 @@ def _to_float(value: str | None) -> float | None:
 
 
 def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str, float]:
-    """오늘의 최고/최저기온, 그리고 체감온도가 가장 높은 시각의 상태를 뽑는다.
+    """오늘 예보에서 카드에 실을 값을 뽑는다.
 
-    TMX/TMN은 해당 시각이 지나면 예보에서 빠지므로, 없으면 남아 있는
-    시간별 기온(TMP)의 최대/최소로 대신한다.
+    **여기서 새 수치를 만들지 않는다.** 기상청이 준 값을 그대로 고르기만 한다.
 
-    체감온도는 같은 시각의 TMP와 REH가 짝으로 있어야 계산할 수 있으므로,
-    시간대별로 계산해 가장 높은 값을 고른다. 그 시각의 습도도 함께 남긴다.
+    - today_max / today_min : TMX / TMN 그대로. 없으면 넣지 않는다.
+      (시간별 TMP의 최대·최소로 대신하면 일최고/최저와 달라져 거짓이 된다.)
+    - humidity : 낮 최고기온 시각의 REH 그대로.
     """
     now = now or datetime.now()
     table = _parse_forecast(items)
@@ -156,26 +155,20 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
                 result[label] = value
                 break
 
-    hourly = [t for slot in today.values() if (t := _to_float(slot.get("TMP"))) is not None]
-    if hourly:
-        result.setdefault("today_max", max(hourly))
-        result.setdefault("today_min", min(hourly))
-
-    peak = _peak_apparent(today)
-    if peak:
-        result["feels_max"], result["humidity"] = peak
+    humidity = _humidity_at_hottest_hour(today)
+    if humidity is not None:
+        result["humidity"] = humidity
     return result
 
 
-def _peak_apparent(day: dict[str, dict[str, str]]) -> tuple[float, float] | None:
-    """하루 중 체감온도가 가장 높은 시각의 (체감온도, 그때 습도)."""
-    best: tuple[float, float] | None = None
+def _humidity_at_hottest_hour(day: dict[str, dict[str, str]]) -> float | None:
+    """가장 더운 시각의 상대습도. 값 자체는 API가 준 REH 그대로다."""
+    best: tuple[float, float] | None = None  # (기온, 그 시각 습도)
     for slot in day.values():
         temp = _to_float(slot.get("TMP"))
         humidity = _to_float(slot.get("REH"))
         if temp is None or humidity is None:
             continue
-        feels = apparent_temperature(temp, humidity)
-        if best is None or feels > best[0]:
-            best = (feels, humidity)
-    return best
+        if best is None or temp > best[0]:
+            best = (temp, humidity)
+    return best[1] if best else None

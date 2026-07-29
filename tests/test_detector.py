@@ -75,20 +75,14 @@ class TestSummarizeTemps:
         ]
         assert summarize_temps(items, NOW) == {"today_max": 36.0, "today_min": 26.0}
 
-    def test_falls_back_to_hourly_when_tmx_is_gone(self):
-        # 오후 실행 시 오늘의 TMX가 예보에서 빠지는 경우
+    def test_missing_tmx_is_left_out_not_guessed(self):
+        # 시간별 TMP의 최대로 일최고를 추정하면 기상청 값과 달라진다. 넣지 않는다.
         items = [
             fcst("20260729", "1500", "TMP", "34"),
             fcst("20260729", "1800", "TMP", "31"),
         ]
-        assert summarize_temps(items, NOW) == {"today_max": 34.0, "today_min": 31.0}
-
-    def test_prefers_tmx_over_hourly_fallback(self):
-        items = [
-            fcst("20260729", "1500", "TMX", "36.0"),
-            fcst("20260729", "1500", "TMP", "34"),
-        ]
-        assert summarize_temps(items, NOW)["today_max"] == 36.0
+        assert "today_max" not in summarize_temps(items, NOW)
+        assert "today_min" not in summarize_temps(items, NOW)
 
     def test_ignores_other_days(self):
         assert summarize_temps([fcst("20260730", "1500", "TMX", "40.0")], NOW) == {}
@@ -96,31 +90,21 @@ class TestSummarizeTemps:
     def test_empty_input(self):
         assert summarize_temps([], NOW) == {}
 
-    def test_computes_feels_like_from_paired_temp_and_humidity(self):
+    def test_humidity_comes_straight_from_reh(self):
         items = [
             fcst("20260729", "1500", "TMP", "33"),
             fcst("20260729", "1500", "REH", "80"),
         ]
-        result = summarize_temps(items, NOW)
-        assert result["humidity"] == 80.0
-        assert result["feels_max"] > 33.0  # 습해서 체감이 기온보다 높다
+        assert summarize_temps(items, NOW)["humidity"] == 80.0
 
-    def test_picks_the_hour_with_the_highest_feels_like(self):
+    def test_humidity_is_taken_at_the_hottest_hour(self):
         items = [
-            # 낮 12시: 덜 덥지만 매우 습함
             fcst("20260729", "1200", "TMP", "31"),
             fcst("20260729", "1200", "REH", "90"),
-            # 오후 3시: 더 덥고 건조함
-            fcst("20260729", "1500", "TMP", "34"),
+            fcst("20260729", "1500", "TMP", "34"),  # 이쪽이 더 덥다
             fcst("20260729", "1500", "REH", "40"),
         ]
-        result = summarize_temps(items, NOW)
-        # 어느 쪽이 이기든, 남은 습도는 이긴 시각의 것이어야 한다.
-        assert result["humidity"] in (90.0, 40.0)
-        assert result["feels_max"] == max(
-            summarize_temps(items[:2], NOW)["feels_max"],
-            summarize_temps(items[2:], NOW)["feels_max"],
-        )
+        assert summarize_temps(items, NOW)["humidity"] == 40.0
 
     def test_skips_hours_missing_humidity(self):
         items = [
@@ -130,9 +114,18 @@ class TestSummarizeTemps:
         ]
         assert summarize_temps(items, NOW)["humidity"] == 70.0
 
-    def test_no_humidity_at_all_leaves_feels_absent(self):
+    def test_no_humidity_at_all_leaves_it_absent(self):
         result = summarize_temps([fcst("20260729", "1500", "TMP", "34")], NOW)
-        assert "feels_max" not in result and "humidity" not in result
+        assert "humidity" not in result
+
+    def test_never_produces_a_feels_like_value(self):
+        items = [
+            fcst("20260729", "1500", "TMX", "33.0"),
+            fcst("20260729", "1500", "TMP", "33"),
+            fcst("20260729", "1500", "REH", "85"),
+        ]
+        result = summarize_temps(items, NOW)
+        assert set(result) <= {"today_max", "today_min", "humidity"}
 
 
 class TestForecastLevels:
@@ -144,16 +137,17 @@ class TestForecastLevels:
         assert _forecast_level({"today_max": 35.0})[0] == "가마솥"
         assert _forecast_level({"today_max": 34.9})[0] == "한여름"
 
-    def test_feels_like_wins_over_air_temperature(self):
-        # 기상청도 체감온도로 특보를 내므로 등급도 체감온도가 기준이다.
-        temps = {"today_max": 31.0, "feels_max": 35.5}
-        assert _forecast_level(temps)[0] == "가마솥"
-
-    def test_falls_back_to_air_temperature_without_humidity(self):
-        assert _forecast_level({"today_max": 34.0})[0] == "한여름"
+    def test_humidity_never_shifts_the_level(self):
+        # 등급은 기온만 본다. 습도로 체감을 추정해 등급을 올리지 않는다.
+        dry = _forecast_level({"today_max": 31.0, "humidity": 20.0})
+        humid = _forecast_level({"today_max": 31.0, "humidity": 95.0})
+        assert dry == humid
 
     def test_missing_temperature_falls_back(self):
         assert _forecast_level({})[0] == "날씨 미확인"
+
+    def test_humidity_alone_is_not_enough_for_a_level(self):
+        assert _forecast_level({"humidity": 90.0})[0] == "날씨 미확인"
 
     def test_daily_key_is_once_per_day(self):
         a = forecast_event(GANGNAM, {}, datetime(2026, 7, 29, 9, 0))
@@ -227,11 +221,16 @@ class TestCard:
         assert "한여름" in attachment["title"]
         assert attachment["color"] == "#F5A623"
 
-    def test_only_weather_fields_remain(self):
-        temps = {"today_max": 31.0, "today_min": 24.0, "feels_max": 34.0, "humidity": 75.0}
+    def test_only_api_backed_fields_remain(self):
+        temps = {"today_max": 31.0, "today_min": 24.0, "humidity": 75.0}
         event = forecast_event(GANGNAM, temps, NOW)
         titles = [f["title"] for f in build_attachment(event, NOW)["fields"]]
-        assert titles == ["낮 최고", "체감 최고", "습도", "아침 최저"]
+        assert titles == ["낮 최고", "아침 최저", "습도"]
+
+    def test_missing_values_produce_no_field(self):
+        event = forecast_event(GANGNAM, {"humidity": 75.0}, NOW)
+        titles = [f["title"] for f in build_attachment(event, NOW)["fields"]]
+        assert titles == ["습도"]  # 없는 기온을 추정해 채우지 않는다
 
     def test_humidity_field_shows_band_name(self):
         event = forecast_event(GANGNAM, {"humidity": 85.0}, NOW)
@@ -272,34 +271,26 @@ class TestCard:
 
 class TestHumidityNote:
     def test_note_appears_in_forecast_card(self):
-        temps = {"today_max": 31.0, "feels_max": 34.0, "humidity": 85.0}
+        temps = {"today_max": 31.0, "humidity": 85.0}
         text = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["text"]
         assert any(note.format(rh=85.0) in text for note in humidity_band(85.0)[1])
 
     def test_note_appears_in_warning_card(self):
         event = build_events(WARNING_T6, None, GANGNAM, None, NOW)[0]
         event = replace(
-            event, temps={"today_max": 33.0, "feels_max": 37.0, "humidity": 82.0}
+            event, temps={"today_max": 33.0, "humidity": 82.0}
         )
         text = build_attachment(event, NOW)["text"]
         assert any(note.format(rh=82.0) in text for note in humidity_band(82.0)[1])
 
     def test_humidity_number_reaches_the_reader_somewhere(self):
         # 멘트에 숫자가 없는 문장도 있으므로, 필드로는 반드시 전달돼야 한다.
-        temps = {"today_max": 31.0, "feels_max": 34.0, "humidity": 85.0}
+        temps = {"today_max": 31.0, "humidity": 85.0}
         attachment = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)
         rendered = attachment["text"] + str(attachment["fields"])
         assert "85" in rendered
 
-    def test_gap_is_called_out_when_feels_much_hotter(self):
-        temps = {"today_max": 31.0, "feels_max": 35.0, "humidity": 85.0}
-        text = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["text"]
-        assert "기온은 31도인데 체감은 35도예요." in text
 
-    def test_gap_is_not_mentioned_when_close(self):
-        temps = {"today_max": 33.0, "feels_max": 33.4, "humidity": 40.0}
-        text = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["text"]
-        assert "체감은" not in text
 
     def test_note_rotates_by_day(self):
         temps = {"humidity": 85.0}

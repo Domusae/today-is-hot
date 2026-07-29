@@ -83,8 +83,7 @@ RELEASE_GUIDE = [
     "물 많이 마시고 오늘은 좀 일찍 자요 😴",
 ]
 
-# 특보가 없는 날의 더위 등급. 기준은 기온이 아니라 **체감온도**다
-# (기상청도 체감온도로 폭염특보를 낸다).
+# 특보가 없는 날의 더위 등급. 기준은 기상청이 준 낮 최고기온(TMX)이다.
 # (최저 기준온도, 등급명, 아이콘, 색상, [멘트들], [안내])
 FORECAST_LEVELS = (
     (
@@ -94,12 +93,12 @@ FORECAST_LEVELS = (
         "#D0021B",
         [
             "밖은 지금 프라이팬이에요 🍳 진심으로 나가지 마세요",
-            "체감 35도… 이건 날씨가 아니라 공격인 것 같아요",
+            "35도… 이건 날씨가 아니라 공격인 것 같아요",
             "오늘의 목표는 생산성이 아니라 생존입니다",
-            "특보는 없는데 체감은 특보급이에요. 이게 무슨 일이죠",
+            "특보는 없는데 기온은 특보급이에요. 이게 무슨 일이죠",
         ],
         [
-            "특보만 없지 체감은 똑같아요. 한낮 외출은 미루세요",
+            "특보만 없지 더운 건 똑같아요. 한낮 외출은 미루세요",
             "물통을 책상에 올려두세요. 눈에 보여야 마시게 돼요",
         ],
     ),
@@ -183,33 +182,26 @@ def _pick(pool: list[str], when: datetime | date | None = None) -> str:
 
 
 def _forecast_level(temps: dict[str, float]):
-    """더위 등급을 고른다.
+    """더위 등급을 고른다. 기준은 기상청이 준 낮 최고기온(TMX)이다.
 
-    기상청이 폭염특보를 체감온도로 내므로 등급도 체감온도를 우선한다.
-    습도를 못 구해 체감온도가 없으면 기온으로 대신한다.
+    기상청은 체감온도로 폭염특보를 내지만 단기예보 API는 체감온도를 주지 않는다.
+    직접 계산해 쓰면 공식 값과 어긋날 수 있어 받아온 기온만 쓴다.
     """
-    reference = temps.get("feels_max", temps.get("today_max"))
-    if reference is None:
+    today_max = temps.get("today_max")
+    if today_max is None:
         return UNKNOWN_LEVEL
     for threshold, *level in FORECAST_LEVELS:
-        if reference >= threshold:
+        if today_max >= threshold:
             return tuple(level)
     return UNKNOWN_LEVEL
 
 
 def _humidity_note(temps: dict[str, float], when: datetime | None = None) -> str:
-    """습도 한 줄. 체감이 기온보다 높으면 그 격차를 같이 짚어준다."""
+    """습도 한 줄. 값은 기상청 REH 그대로다."""
     humidity = temps.get("humidity")
     if humidity is None:
         return ""
-
-    _, notes = humidity_band(humidity)
-    line = _pick(notes, when).format(rh=humidity)
-
-    feels, actual = temps.get("feels_max"), temps.get("today_max")
-    if feels is not None and actual is not None and feels - actual >= 1.5:
-        line += f" 기온은 {actual:.0f}도인데 체감은 {feels:.0f}도예요."
-    return line
+    return _pick(humidity_band(humidity)[1], when).format(rh=humidity)
 
 
 def _title(event: HeatEvent) -> str:
@@ -254,24 +246,24 @@ def _body(event: HeatEvent, when: datetime | None = None) -> str:
 
 
 def _fields(event: HeatEvent) -> list[dict]:
-    """지역은 늘 같으므로 표시하지 않는다. 기온·체감·습도만 보여준다."""
+    """지역은 늘 같으므로 표시하지 않는다.
+
+    값이 없으면 필드를 아예 만들지 않는다. 추정치로 채우지 않는다.
+    """
     fields = []
     today_max = event.temps.get("today_max")
     today_min = event.temps.get("today_min")
-    feels_max = event.temps.get("feels_max")
     humidity = event.temps.get("humidity")
 
     if today_max is not None:
         fields.append({"title": "낮 최고", "value": f"{today_max:.0f}℃", "short": True})
-    if feels_max is not None:
-        fields.append({"title": "체감 최고", "value": f"{feels_max:.0f}℃", "short": True})
+    if today_min is not None:
+        fields.append({"title": "아침 최저", "value": f"{today_min:.0f}℃", "short": True})
     if humidity is not None:
         name, _ = humidity_band(humidity)
         fields.append(
             {"title": "습도", "value": f"{humidity:.0f}% · {name}", "short": True}
         )
-    if today_min is not None:
-        fields.append({"title": "아침 최저", "value": f"{today_min:.0f}℃", "short": True})
     return fields
 
 

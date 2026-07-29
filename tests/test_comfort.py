@@ -1,43 +1,9 @@
-"""기상청 여름철 체감온도(2020 개정) 산식 검증."""
-import pytest
+"""습도 등급 분류.
 
-from src.comfort import apparent_temperature, humidity_band, wet_bulb
-
-
-class TestWetBulb:
-    def test_saturated_air_equals_dry_bulb(self):
-        # 습도 100%면 습구온도는 기온과 거의 같다.
-        assert wet_bulb(30.0, 100.0) == pytest.approx(30.0, abs=0.5)
-
-    def test_dry_air_is_much_lower(self):
-        assert wet_bulb(30.0, 20.0) < 20.0
-
-    def test_rises_with_humidity(self):
-        assert wet_bulb(30.0, 40.0) < wet_bulb(30.0, 60.0) < wet_bulb(30.0, 80.0)
-
-
-class TestApparentTemperature:
-    def test_humidity_pushes_it_above_air_temperature(self):
-        # 33도 습도 80%는 체감이 기온보다 확실히 높다.
-        assert apparent_temperature(33.0, 80.0) > 35.0
-
-    def test_dry_air_feels_close_to_air_temperature(self):
-        feels = apparent_temperature(33.0, 30.0)
-        assert 30.0 < feels < 34.0
-
-    def test_monotonic_in_humidity(self):
-        values = [apparent_temperature(32.0, rh) for rh in (30, 50, 70, 90)]
-        assert values == sorted(values)
-
-    def test_monotonic_in_temperature(self):
-        values = [apparent_temperature(t, 60.0) for t in (28, 31, 34, 37)]
-        assert values == sorted(values)
-
-    def test_stays_in_a_plausible_range(self):
-        # 기상청 공식 대조표로 검증한 값이 아니라, 산식이 상식적인 범위를
-        # 벗어나지 않는지만 본다. 습하면 기온보다 높고, 터무니없이 높지는 않다.
-        feels = apparent_temperature(31.0, 70.0)
-        assert 31.0 < feels < 36.0
+체감온도 계산은 제거했다. 단기예보 API가 체감온도를 주지 않아
+직접 계산하면 기상청 공식 값과 어긋날 수 있기 때문이다.
+"""
+from src.comfort import humidity_band
 
 
 class TestHumidityBand:
@@ -50,6 +16,8 @@ class TestHumidityBand:
     def test_boundaries_are_inclusive(self):
         assert humidity_band(80)[0] == "매우 습함"
         assert humidity_band(79.9)[0] == "습함"
+        assert humidity_band(70)[0] == "습함"
+        assert humidity_band(55)[0] == "약간 습함"
 
     def test_every_band_has_messages(self):
         for rh in (10, 30, 55, 70, 80, 95, 100):
@@ -64,3 +32,10 @@ class TestHumidityBand:
 
     def test_zero_humidity_is_safe(self):
         assert humidity_band(0)[0] == "쾌적"
+
+    def test_no_temperature_is_invented(self):
+        # 이 모듈은 숫자를 만들어내지 않는다. 분류와 문구만 담당한다.
+        import src.comfort as comfort
+
+        assert not hasattr(comfort, "apparent_temperature")
+        assert not hasattr(comfort, "wet_bulb")
