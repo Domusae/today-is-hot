@@ -1,27 +1,16 @@
-"""기상특보 목록에서 현재 발효 중인 폭염 특보를 판정한다.
+"""통보문 현황(t6)과 단기예보에서 알림 이벤트를 만든다.
 
-실제 특보 제목은 이런 형태다.
-
-    [특보] 제07-100호 : 2026.07.29.10:00 / 폭염경보 변경 (*)
-    [특보] 제07-92호 : 2026.07.24.16:00 / 폭염주의보 변경·폭염주의보 해제·열대야주의보 발표 (*)
-
-제목에 지역명은 없다(지역은 stnId로 구분된다). 한 건에 여러 특보가
-가운뎃점으로 묶여 오므로 조각별로 나눠 읽어야 한다.
+특보 판정은 전적으로 status.py(t6 파싱)에 맡긴다. 특보 목록의 제목에는
+지역 정보가 없어서 구역 단위 판정이 불가능하기 때문이다.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .config import Region
+from .status import heat_warnings_for
 
-# "/" 뒤가 실제 특보 내용, 끝의 "(*)"는 잘라낸다.
-TITLE_BODY = re.compile(r"/\s*(.+?)\s*(?:\(\*\))?\s*$")
-# "폭염경보 변경" 같은 조각 하나. 열대야는 이 캠페인 범위 밖이라 잡지 않는다.
-SEGMENT = re.compile(r"폭염(주의보|경보)\s*(발표|변경|대치|연장|해제)")
-
-# 해제 외의 동작은 모두 '발효 중'으로 본다.
 RELEASE = "해제"
 
 
@@ -29,7 +18,7 @@ RELEASE = "해제"
 class HeatEvent:
     """알림 한 건."""
 
-    kind: str  # 폭염주의보 / 폭염경보 / 예보 단계 이름
+    kind: str  # 폭염중대경보 / 폭염경보 / 폭염주의보 / 오늘의 더위
     action: str  # 발효 중 / 해제 / 예보
     region: str
     issued_at: str  # 표시용 시각 문자열
@@ -47,87 +36,64 @@ class HeatEvent:
         return self.kind.startswith("폭염")
 
 
-def _parse_tm_fc(tm_fc) -> datetime | None:
+def format_tm_fc(tm_fc) -> str:
     try:
-        return datetime.strptime(str(tm_fc), "%Y%m%d%H%M")
+        return datetime.strptime(str(tm_fc), "%Y%m%d%H%M").strftime("%m월 %d일 %H시 %M분")
     except (ValueError, TypeError):
-        return None
-
-
-def parse_segments(title: str) -> list[tuple[str, str]]:
-    """제목에서 (폭염주의보|폭염경보, 동작) 조각을 모두 뽑는다."""
-    body = TITLE_BODY.search(str(title))
-    if not body:
-        return []
-    return [
-        (f"폭염{level}", action) for level, action in SEGMENT.findall(body.group(1))
-    ]
-
-
-def current_warnings(items: list[dict]) -> dict[str, datetime]:
-    """발표 이력을 시간순으로 재생해 지금 발효 중인 특보를 남긴다.
-
-    반환: {특보종류: 마지막으로 발효된 시각}
-    """
-    timed = [(at, item) for item in items if (at := _parse_tm_fc(item.get("tmFc")))]
-    active: dict[str, datetime] = {}
-    for at, item in sorted(timed, key=lambda pair: pair[0]):
-        for kind, action in parse_segments(item.get("title", "")):
-            if action == RELEASE:
-                active.pop(kind, None)
-            else:
-                active.setdefault(kind, at)
-    return active
-
-
-def recent_releases(items: list[dict], now: datetime, within_hours: int = 24) -> dict[str, datetime]:
-    """최근 N시간 안에 해제된 특보. 해제 카드를 하루 한 번 보내기 위해 쓴다."""
-    cutoff = now - timedelta(hours=within_hours)
-    released: dict[str, datetime] = {}
-    for item in items:
-        at = _parse_tm_fc(item.get("tmFc"))
-        if at is None or at < cutoff:
-            continue
-        for kind, action in parse_segments(item.get("title", "")):
-            if action == RELEASE:
-                released[kind] = at
-    # 해제 후 다시 발표된 경우는 해제 카드를 보내지 않는다.
-    return {k: v for k, v in released.items() if k not in current_warnings(items)}
+        return str(tm_fc)
 
 
 def build_events(
-    items: list[dict], region: Region, now: datetime | None = None
+    current_t6: str,
+    previous_t6: str | None,
+    region: Region,
+    tm_fc=None,
+    now: datetime | None = None,
 ) -> list[HeatEvent]:
-    """오늘 아침 기준으로 알릴 이벤트를 만든다."""
+    """지금 발효 중인 특보와, 어제 대비 해제된 특보로 이벤트를 만든다.
+
+    previous_t6가 없으면(어제 통보문을 못 구한 경우) 신규 여부를 알 수 없으므로
+    모두 '이어지는 특보'로 취급한다. 없는 정보를 지어내지 않는다.
+    """
     now = now or datetime.now()
     today = now.strftime("%Y%m%d")
-    events: list[HeatEvent] = []
+    stamp = format_tm_fc(tm_fc) if tm_fc else now.strftime("%m월 %d일")
 
-    for kind, at in sorted(current_warnings(items).items()):
-        started_today = at.strftime("%Y%m%d") == today
+    current = heat_warnings_for(current_t6, region.warn_area, region.sub_area)
+    previous = (
+        heat_warnings_for(previous_t6, region.warn_area, region.sub_area)
+        if previous_t6
+        else None
+    )
+
+    events: list[HeatEvent] = []
+    for kind in current:
+        is_new = previous is not None and kind not in previous
         events.append(
             HeatEvent(
                 kind=kind,
                 action="발효 중",
                 region=region.name,
-                issued_at=at.strftime("%m월 %d일 %H시 %M분 발효"),
+                issued_at=stamp,
                 key=f"{today}:active:{region.name}:{kind}",
                 detail=(
-                    f"조금 전 {region.name}에 {kind}가 발효됐습니다."
-                    if started_today
-                    else f"{region.name}에 {kind}가 계속 발효 중입니다."
+                    f"{region.name}에 {kind}가 새로 발효됐습니다."
+                    if is_new
+                    else f"{region.name}에 {kind}가 발효 중입니다."
                 ),
-                started_today=started_today,
+                started_today=is_new,
             )
         )
 
-    for kind, at in sorted(recent_releases(items, now).items()):
+    for kind in previous or []:
+        if kind in current:
+            continue
         events.append(
             HeatEvent(
                 kind=kind,
                 action=RELEASE,
                 region=region.name,
-                issued_at=at.strftime("%m월 %d일 %H시 %M분 해제"),
+                issued_at=stamp,
                 key=f"{today}:release:{region.name}:{kind}",
                 detail=f"{region.name}의 {kind}가 해제되었습니다.",
             )
@@ -173,7 +139,11 @@ def _to_float(value: str | None) -> float | None:
 
 
 def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str, float]:
-    """카드에 함께 보여줄 오늘의 최고/최저기온을 뽑는다."""
+    """카드에 함께 보여줄 오늘의 최고/최저기온을 뽑는다.
+
+    TMX/TMN은 해당 시각이 지나면 예보에서 빠지므로, 없으면 남아 있는
+    시간별 기온(TMP)의 최대/최소로 대신한다.
+    """
     now = now or datetime.now()
     table = _parse_forecast(items)
     today = table.get(now.strftime("%Y%m%d"), {})
@@ -185,4 +155,9 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
             if value is not None:
                 result[label] = value
                 break
+
+    hourly = [t for slot in today.values() if (t := _to_float(slot.get("TMP"))) is not None]
+    if hourly:
+        result.setdefault("today_max", max(hourly))
+        result.setdefault("today_min", min(hourly))
     return result

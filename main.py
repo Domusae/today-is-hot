@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from dataclasses import replace
 
 from src import card, detector, kma, notifier, state
@@ -17,20 +18,44 @@ from src.config import REGIONS, WARNING_LOOKBACK_DAYS, load_settings
 from src.detector import HeatEvent
 
 
+def _status_pair(service_key: str, region, now: datetime) -> tuple[str, str | None, object]:
+    """최신 통보문의 현황(t6)과, 비교용으로 어제 이전 통보문의 현황을 가져온다.
+
+    두 시점을 비교해야 '오늘 새로 발효'와 '해제'를 구분할 수 있다.
+    """
+    warnings = kma.fetch_warnings(service_key, region.stn_id, WARNING_LOOKBACK_DAYS)
+    if not warnings:
+        return "", None, None
+
+    by_time = sorted(warnings, key=lambda w: int(w.get("tmFc", 0)), reverse=True)
+    latest = by_time[0]
+    today = now.strftime("%Y%m%d")
+    earlier = next((w for w in by_time if str(w.get("tmFc", ""))[:8] < today), None)
+
+    def status_of(item) -> str:
+        if item is None:
+            return ""
+        msgs = kma.fetch_warning_msg(service_key, region.stn_id, item.get("tmFc"))
+        return str(msgs[0].get("t6", "")) if msgs else ""
+
+    return status_of(latest), (status_of(earlier) or None), latest.get("tmFc")
+
+
 def collect_events(service_key: str) -> list[HeatEvent]:
+    now = datetime.now()
     events: list[HeatEvent] = []
     for region in REGIONS:
         forecast = kma.fetch_forecast(service_key, region.nx, region.ny)
-        temps = detector.summarize_temps(forecast)
+        temps = detector.summarize_temps(forecast, now)
 
-        warnings = kma.fetch_warnings(service_key, region.stn_id, WARNING_LOOKBACK_DAYS)
+        current, previous, tm_fc = _status_pair(service_key, region, now)
         found = [
             # 특보 카드에도 기온을 같이 실어 보여준다.
             replace(event, temps=temps)
-            for event in detector.build_events(warnings, region)
+            for event in detector.build_events(current, previous, region, tm_fc, now)
         ]
         # 특보가 없는 날에도 가벼운 더위 안내는 매일 나간다.
-        events.extend(found or [detector.forecast_event(region, temps)])
+        events.extend(found or [detector.forecast_event(region, temps, now)])
     return events
 
 
