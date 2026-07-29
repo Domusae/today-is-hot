@@ -1,7 +1,7 @@
 """기상청 공공데이터 API 클라이언트.
 
 - 기상특보 조회서비스 (WthrWrnInfoService)  : 폭염주의보/경보 발표·해제 감지
-- 단기예보 조회서비스 (VilageFcstInfoService_2.0) : 최고/최저기온 → 열대야 판정
+- 단기예보 조회서비스 (VilageFcstInfoService_2.0) : 카드에 표시할 최고/최저기온
 """
 from __future__ import annotations
 

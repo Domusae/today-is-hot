@@ -2,7 +2,7 @@ from datetime import datetime
 
 from src.card import build_attachment, build_payload
 from src.config import Region
-from src.detector import detect_heat_warnings, detect_tropical_night, summarize_temps
+from src.detector import detect_heat_warnings, summarize_temps
 from src.state import filter_new, mark, prune
 
 DAEJEON = Region(name="대전", stn_id="133", nx=67, ny=100, keywords=("대전", "충남"))
@@ -46,40 +46,22 @@ def fcst(date, time, category, value):
     return {"fcstDate": date, "fcstTime": time, "category": category, "fcstValue": value}
 
 
-class TestTropicalNight:
-    def test_detects_when_night_min_at_or_above_25(self):
+class TestSummarizeTemps:
+    def test_reads_daily_max_and_min(self):
         items = [
-            fcst("20260729", "2100", "TMP", "27"),
-            fcst("20260730", "0300", "TMP", "26"),
-            fcst("20260730", "0600", "TMP", "25"),
+            fcst("20260729", "1500", "TMX", "36.0"),
+            fcst("20260729", "0600", "TMN", "26.0"),
         ]
-        now = datetime(2026, 7, 29, 18, 0)
-        event = detect_tropical_night(items, DAEJEON, now)
-        assert event is not None
-        assert event.kind == "열대야"
-        assert event.temps["night_min"] == 25.0
-
-    def test_no_event_when_it_cools_below_25(self):
-        items = [
-            fcst("20260729", "2100", "TMP", "27"),
-            fcst("20260730", "0600", "TMP", "23"),
-        ]
-        now = datetime(2026, 7, 29, 18, 0)
-        assert detect_tropical_night(items, DAEJEON, now) is None
-
-    def test_ignores_daytime_temps_outside_night_window(self):
-        # 낮 최고 36도는 열대야 판정 구간(18시~익일 09시) 밖이라 무시돼야 한다.
-        items = [
-            fcst("20260729", "1400", "TMP", "36"),
-            fcst("20260729", "2100", "TMP", "24"),
-        ]
-        now = datetime(2026, 7, 29, 18, 0)
-        assert detect_tropical_night(items, DAEJEON, now) is None
-
-    def test_summarize_reads_daily_max(self):
-        items = [fcst("20260729", "1500", "TMX", "36.0")]
         temps = summarize_temps(items, datetime(2026, 7, 29, 18, 0))
-        assert temps["today_max"] == 36.0
+        assert temps == {"today_max": 36.0, "today_min": 26.0}
+
+    def test_ignores_other_days(self):
+        items = [fcst("20260730", "1500", "TMX", "40.0")]
+        assert summarize_temps(items, datetime(2026, 7, 29, 18, 0)) == {}
+
+    def test_tolerates_missing_values(self):
+        items = [fcst("20260729", "1500", "TMP", "33")]
+        assert summarize_temps(items, datetime(2026, 7, 29, 18, 0)) == {}
 
 
 class TestState:

@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 KMA_BASE = "https://apis.data.go.kr/1360000"
 
-# 열대야 판정 기준: 밤(18시~익일 09시) 최저기온
-TROPICAL_NIGHT_C = 25.0
 # 폭염 참고 기준: 낮 최고기온
 HEAT_ADVISORY_C = 33.0
 HEAT_WARNING_C = 35.0

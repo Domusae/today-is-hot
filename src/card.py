@@ -11,14 +11,12 @@ CAMPAIGN = "오늘도 덥습니다"
 COLORS = {
     "폭염경보": "#D0021B",
     "폭염주의보": "#F5A623",
-    "열대야": "#7B4EA8",
     "해제": "#2FA84F",
 }
 
 ICONS = {
     "폭염경보": "🔥",
     "폭염주의보": "🌡️",
-    "열대야": "🌙",
 }
 
 ACTION_GUIDE = {
@@ -34,12 +32,6 @@ ACTION_GUIDE = {
         "실내는 26~28℃를 유지하고 주기적으로 환기하세요.",
         "얇고 밝은 색의 헐렁한 옷이 체온을 덜 올립니다.",
     ],
-    "열대야": [
-        "잠들기 1~2시간 전 미지근한 물로 샤워하면 체온이 떨어집니다.",
-        "냉방은 26~28℃ + 선풍기 조합이 몸에 부담이 적습니다.",
-        "자기 직전 과식·음주는 수면 중 체온을 올립니다.",
-        "머리맡에 물 한 컵을 두세요. 밤중 탈수를 막아줍니다.",
-    ],
 }
 
 RELEASE_GUIDE = [
@@ -52,8 +44,6 @@ def _title(event: HeatEvent) -> str:
     icon = ICONS.get(event.kind, "☀️")
     if event.is_release:
         return f"✅ {event.region} {event.kind} 해제"
-    if event.kind == "열대야":
-        return f"{icon} 오늘 밤 {event.region}, 열대야가 예상됩니다"
     return f"{icon} {event.region} {event.kind} {event.action}"
 
 
@@ -68,11 +58,11 @@ def _fields(event: HeatEvent) -> list[dict]:
         {"title": "발표", "value": event.issued_at, "short": True},
     ]
     today_max = event.temps.get("today_max")
-    night_min = event.temps.get("night_min")
+    today_min = event.temps.get("today_min")
     if today_max is not None:
         fields.append({"title": "낮 최고", "value": f"{today_max:.0f}℃", "short": True})
-    if night_min is not None:
-        fields.append({"title": "밤 최저", "value": f"{night_min:.0f}℃", "short": True})
+    if today_min is not None:
+        fields.append({"title": "아침 최저", "value": f"{today_min:.0f}℃", "short": True})
     return fields
 
 

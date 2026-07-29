@@ -1,4 +1,4 @@
-"""오늘도 덥습니다 — 폭염/열대야 특보 감지 후 Mattermost 카드 발송.
+"""오늘도 덥습니다 — 폭염 특보 감지 후 Mattermost 카드 발송.
 
 사용:
     python main.py                # 감지 → 신규 이벤트만 발송
@@ -27,10 +27,6 @@ def collect_events(service_key: str) -> list[HeatEvent]:
         for event in detector.detect_heat_warnings(warnings, region):
             # 특보 카드에도 기온을 같이 실어 보여준다.
             events.append(replace(event, temps=temps))
-
-        tropical = detector.detect_tropical_night(forecast, region)
-        if tropical:
-            events.append(tropical)
     return events
 
 
@@ -43,16 +39,16 @@ def demo_events() -> list[HeatEvent]:
             issued_at="07월 29일 11시 00분",
             key="demo:1",
             detail="[기상특보] 대전, 세종, 충남 폭염경보 발표",
-            temps={"today_max": 36.0, "night_min": 26.0},
+            temps={"today_max": 36.0, "today_min": 26.0},
         ),
         HeatEvent(
-            kind="열대야",
-            action="예상",
+            kind="폭염주의보",
+            action="발표",
             region="대전",
-            issued_at="07월 29일 밤",
+            issued_at="07월 28일 11시 00분",
             key="demo:2",
-            detail="밤사이 최저기온이 26℃로 예상됩니다.",
-            temps={"night_min": 26.0},
+            detail="[기상특보] 대전, 세종, 충남 폭염주의보 발표",
+            temps={"today_max": 34.0, "today_min": 25.0},
         ),
     ]
 
@@ -72,7 +68,7 @@ def main() -> int:
     settings = load_settings(dry_run=args.dry_run)
     events = collect_events(settings.kma_service_key)
     if not events:
-        print("발효 중인 폭염 특보나 열대야 예보가 없습니다.")
+        print("발효 중인 폭염 특보가 없습니다.")
         return 0
 
     sent = state.prune(state.load())
