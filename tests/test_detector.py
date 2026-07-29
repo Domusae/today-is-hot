@@ -2,7 +2,8 @@ from dataclasses import replace
 from datetime import datetime
 
 from src.card import (
-    RAIN_NOTES,
+    HEAT_WITH_RAIN_GUIDE,
+    HEAT_WITH_RAIN_NOTES,
     _forecast_level,
     _pick,
     build_attachment,
@@ -11,7 +12,7 @@ from src.card import (
 from src.comfort import humidity_band
 from src.config import Region
 from src.detector import build_events, forecast_event, summarize_temps
-from src.precip import DayPart
+from src.precip import RainOutlook
 from src.state import filter_new, mark, prune
 
 GANGNAM = Region(
@@ -82,14 +83,15 @@ class TestSummarizeTemps:
         ]
         assert summarize_temps(items, NOW) == {"today_max": 36.0, "today_min": 26.0}
 
-    def test_missing_tmx_is_left_out_not_guessed(self):
+    def test_missing_tmx_uses_a_separate_key(self):
         # 시간별 TMP의 최대로 일최고를 추정하면 기상청 값과 달라진다. 넣지 않는다.
         items = [
             fcst("20260729", "1500", "TMP", "34"),
             fcst("20260729", "1800", "TMP", "31"),
         ]
-        assert "today_max" not in summarize_temps(items, NOW)
-        assert "today_min" not in summarize_temps(items, NOW)
+        result = summarize_temps(items, NOW)
+        assert "today_max" not in result and result["rest_max"] == 34.0
+        assert "today_min" not in result and result["rest_min"] == 31.0
 
     def test_ignores_other_days(self):
         assert summarize_temps([fcst("20260730", "1500", "TMX", "40.0")], NOW) == {}
@@ -132,7 +134,7 @@ class TestSummarizeTemps:
             fcst("20260729", "1500", "REH", "85"),
         ]
         result = summarize_temps(items, NOW)
-        assert set(result) <= {"today_max", "today_min", "humidity"}
+        assert set(result) <= {"today_max", "today_min", "rest_max", "rest_min", "humidity"}
 
 
 class TestForecastLevels:
@@ -311,64 +313,76 @@ class TestHumidityNote:
         assert text and "습도" not in text
 
 
-class TestRainInCards:
-    RAIN = (
-        DayPart(name="오전", rain="비", sky="흐림", pop=80),
-        DayPart(name="오후", rain="", sky="맑음", pop=20),
-        DayPart(name="저녁", rain="", sky="맑음", pop=10),
-    )
-    DRY = (
-        DayPart(name="오전", rain="", sky="맑음", pop=0),
-        DayPart(name="오후", rain="", sky="맑음", pop=10),
-    )
+class TestHeatWithRain:
+    RAIN = RainOutlook(kind="비", pop=80)
+    SHOWER = RainOutlook(kind="소나기", pop=60)
 
-    def test_morning_rain_note_is_shown(self):
-        event = replace(forecast_event(GANGNAM, {"today_max": 34.0}, NOW), dayparts=self.RAIN)
-        text = build_attachment(event, NOW)["text"]
-        assert any(note in text for note in RAIN_NOTES["오전"])
+    def warning(self, rain=None):
+        event = build_events(WARNING_T6, None, GANGNAM, None, NOW)[0]
+        return replace(event, temps={"today_max": 34.0}, rain=rain)
 
-    def test_dry_day_has_no_rain_note(self):
-        event = replace(forecast_event(GANGNAM, {"today_max": 34.0}, NOW), dayparts=self.DRY)
-        text = build_attachment(event, NOW)["text"]
+    def test_rain_note_only_when_heat_warning_is_active(self):
+        text = build_attachment(self.warning(self.RAIN), NOW)["text"]
+        assert any(n.format(kind="비") in text for n in HEAT_WITH_RAIN_NOTES)
+
+    def test_no_rain_note_without_rain(self):
+        text = build_attachment(self.warning(), NOW)["text"]
         assert "우산" not in text and "비" not in text
 
-    def test_warning_card_adds_rain_specific_guidance(self):
+    def test_forecast_card_never_mentions_rain(self):
+        # 특보가 없는 날은 강수를 아예 다루지 않는다.
         event = replace(
-            build_events(WARNING_T6, None, GANGNAM, None, NOW)[0], dayparts=self.RAIN
+            forecast_event(GANGNAM, {"today_max": 31.0}, NOW), rain=self.RAIN
         )
         text = build_attachment(event, NOW)["text"]
-        assert "비 와도 더위는 그대로예요" in text
+        assert not any(n.format(kind="비") in text for n in HEAT_WITH_RAIN_NOTES)
 
-    def test_warning_card_without_rain_omits_that_line(self):
-        event = replace(
-            build_events(WARNING_T6, None, GANGNAM, None, NOW)[0], dayparts=self.DRY
-        )
-        assert "비 와도 더위는" not in build_attachment(event, NOW)["text"]
+    def test_extra_guidance_line_is_added(self):
+        assert HEAT_WITH_RAIN_GUIDE in build_attachment(self.warning(self.RAIN), NOW)["text"]
 
-    def test_daypart_field_lists_each_segment(self):
-        event = replace(forecast_event(GANGNAM, {}, NOW), dayparts=self.RAIN)
-        values = [f["value"] for f in build_attachment(event, NOW)["fields"]]
-        assert "오전 비 · 오후 맑음 · 저녁 맑음" in values
+    def test_guidance_absent_without_rain(self):
+        assert HEAT_WITH_RAIN_GUIDE not in build_attachment(self.warning(), NOW)["text"]
 
-    def test_pop_field_shows_the_max(self):
-        event = replace(forecast_event(GANGNAM, {}, NOW), dayparts=self.RAIN)
-        values = [f["value"] for f in build_attachment(event, NOW)["fields"]]
-        assert "최대 80%" in values
+    def test_rain_field_shows_kind_and_pop(self):
+        values = [f["value"] for f in build_attachment(self.warning(self.RAIN), NOW)["fields"]]
+        assert "비 · 최대 80%" in values
 
-    def test_no_daypart_data_means_no_daypart_fields(self):
-        event = forecast_event(GANGNAM, {"today_max": 34.0}, NOW)
-        titles = [f["title"] for f in build_attachment(event, NOW)["fields"]]
-        assert "강수확률" not in titles and "시간대" not in titles
+    def test_shower_kind_reaches_the_message(self):
+        text = build_attachment(self.warning(self.SHOWER), NOW)["text"]
+        assert "소나기" in text
 
-    def test_rain_note_rotates_by_day(self):
-        event = replace(forecast_event(GANGNAM, {"today_max": 34.0}, NOW), dayparts=self.RAIN)
+    def test_forecast_card_has_no_rain_field(self):
+        event = replace(forecast_event(GANGNAM, {}, NOW), rain=self.RAIN)
+        assert "강수" not in [f["title"] for f in build_attachment(event, NOW)["fields"]]
+
+    def test_note_rotates_by_day(self):
+        event = self.warning(self.RAIN)
         day1 = build_attachment(event, datetime(2026, 7, 29))["text"]
         day2 = build_attachment(event, datetime(2026, 7, 30))["text"]
         assert day1 != day2
 
-    def test_heat_and_rain_notes_coexist(self):
-        temps = {"today_max": 35.0, "humidity": 85.0}
-        event = replace(forecast_event(GANGNAM, temps, NOW), dayparts=self.RAIN)
-        text = build_attachment(event, NOW)["text"]
-        assert any(note in text for note in RAIN_NOTES["오전"])
-        assert any(note.format(rh=85.0) in text for note in humidity_band(85.0)[1])
+
+class TestTemperatureFields:
+    def test_daily_values_are_labelled_plainly(self):
+        temps = {"today_max": 33.0, "today_min": 26.0}
+        titles = [f["title"] for f in build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]]
+        assert titles == ["낮 최고", "아침 최저"]
+
+    def test_fallback_values_are_labelled_differently(self):
+        # 일최고가 아니라 남은 시간 기준임을 이름표로 밝힌다.
+        temps = {"rest_max": 31.0, "rest_min": 27.0}
+        fields = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]
+        assert [f["title"] for f in fields] == ["남은 시간 최고", "남은 시간 최저"]
+
+    def test_daily_value_wins_over_fallback(self):
+        temps = {"today_max": 33.0, "rest_max": 31.0}
+        fields = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]
+        assert fields[0] == {"title": "낮 최고", "value": "33℃", "short": True}
+
+    def test_mixed_case_labels_each_correctly(self):
+        temps = {"today_max": 33.0, "rest_min": 27.0}
+        titles = [f["title"] for f in build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]]
+        assert titles == ["낮 최고", "남은 시간 최저"]
+
+    def test_no_temperature_no_fields(self):
+        assert build_attachment(forecast_event(GANGNAM, {}, NOW), NOW)["fields"] == []

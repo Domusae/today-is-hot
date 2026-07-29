@@ -16,7 +16,6 @@ from datetime import date, datetime
 
 from .comfort import humidity_band
 from .detector import HeatEvent
-from .precip import max_pop, rain_pattern
 
 CAMPAIGN = "오늘도 덥습니다"
 
@@ -163,53 +162,17 @@ FORECAST_LEVELS = (
     ),
 )
 
-# 강수 패턴별 멘트. 캠페인 이름이 "오늘도 덥습니다"라서 비 오는 날은
-# 스스로를 놀리는 톤으로 간다.
-RAIN_NOTES = {
-    "종일": [
-        "오늘은 안 덥습니다. 대신 젖습니다 ☔",
-        "캠페인 이름을 바꿔야 하나 진지하게 고민 중이에요",
-        "종일 비예요. 오늘만큼은 제가 할 말이 없네요",
-        "비 옵니다. 더위 얘기하러 왔는데 민망하네요 🙃",
-    ],
-    "오전": [
-        "오전엔 비, 오후엔 더위. 알차게도 괴롭히네요 ☔→☀️",
-        "아침에 젖고 낮에 마릅니다. 효율적이죠",
-        "오전 비 지나가면 제 차례예요. 우산은 챙기시고요",
-    ],
-    "오후": [
-        "오후에 비 소식이에요. 더위가 씻겨나갈지는 미지수입니다",
-        "낮엔 덥고 오후엔 비. 하루가 참 바쁩니다",
-        "오후에 우산 필요해요. 아침에 챙기셔야 하고요 ☔",
-    ],
-    "저녁": [
-        "퇴근길에 비 옵니다. 우산 놓고 가지 마세요 ☔",
-        "저녁에 비예요. 하루 마무리까지 알차네요",
-        "낮엔 덥히고 밤엔 적십니다. 세트 메뉴인가요",
-    ],
-    "오전+저녁": [
-        "오전에 젖고 낮에 마르고 저녁에 또 젖어요. 바쁘네요",
-        "비가 낮만 비켜갑니다. 제 자리 남겨두려는 배려일까요 🙃",
-    ],
-    "오후+저녁": [
-        "오후부터 쭉 비예요. 우산 큰 걸로 챙기세요 ☔",
-        "오전만 제 시간이네요. 나머지는 비한테 양보합니다",
-    ],
-    "소나기": [
-        "소나기 조심하세요. 예고 없이 쏟아집니다 🌦",
-        "소나기 오는 날이에요. 우산은 보험이라 생각하세요",
-        "덥다가 갑자기 퍼붓습니다. 성격이 급한 날씨네요",
-    ],
-    "가능성": [
-        "비 올 확률 {pop}%예요. 애매하죠? 저도 애매합니다",
-        "{pop}% 확률로 비예요. 우산은 챙기는 쪽이 마음 편해요",
-        "비가 올 듯 말 듯 합니다. 하늘도 고민 중인가 봐요",
-    ],
-    "기타": [
-        "오늘 비 소식이 있어요. 우산 챙기세요 ☔",
-        "비가 오락가락합니다. 우산은 가방에 넣어두세요",
-    ],
-}
+# 폭염 특보가 발효 중인데 비까지 오는 날에만 붙는 멘트.
+# 그 밖의 날에는 강수를 아예 언급하지 않는다.
+HEAT_WITH_RAIN_NOTES = [
+    "게다가 {kind}까지 옵니다. 덥고 축축한 최악의 조합이에요 ☔",
+    "{kind} 소식도 있어요. 우산 써도 더위는 그대로입니다",
+    "폭염에 {kind}까지. 오늘 날씨 욕심이 과하네요 🙃",
+    "{kind} 온다고 시원해지지 않아요. 오히려 더 후덥지근합니다",
+    "습한 데다 {kind}까지 와요. 오늘은 그냥 실내에 계세요",
+]
+
+HEAT_WITH_RAIN_GUIDE = "비 와도 더위는 그대로예요. 우산 쓰고도 물 챙기세요 ☔"
 
 UNKNOWN_LEVEL = (
     "날씨 미확인",
@@ -245,20 +208,11 @@ def _forecast_level(temps: dict[str, float]):
     return UNKNOWN_LEVEL
 
 
-def _rain_note(dayparts, when: datetime | None = None) -> str:
-    """강수 한 줄. 시간대 패턴에 맞는 멘트를 날짜로 골라 쓴다."""
-    parts = list(dayparts)
-    pattern = rain_pattern(parts)
-    if not pattern:
+def _heat_rain_note(event: HeatEvent, when: datetime | None = None) -> str:
+    """폭염 특보 + 비 예보가 겹칠 때만 나오는 한 줄."""
+    if not (event.is_warning and event.rain):
         return ""
-    pool = RAIN_NOTES.get(pattern) or RAIN_NOTES["기타"]
-    return _pick(pool, when).format(pop=max_pop(parts))
-
-
-def _daypart_line(dayparts) -> str:
-    """오전 흐림 · 오후 비 · 저녁 맑음"""
-    parts = list(dayparts)
-    return " · ".join(f"{p.name} {p.label}" for p in parts) if parts else ""
+    return _pick(HEAT_WITH_RAIN_NOTES, when).format(kind=event.rain.kind)
 
 
 def _humidity_note(temps: dict[str, float], when: datetime | None = None) -> str:
@@ -290,32 +244,27 @@ def _color(event: HeatEvent) -> str:
 
 
 def _body(event: HeatEvent, when: datetime | None = None) -> str:
-    # 더위 한 줄 + 강수 한 줄 + 습도 한 줄을 조합한다.
-    # 조각을 따로 두면 조합 수가 곱셈으로 늘어난다.
-    extras = [
-        note
-        for note in (_rain_note(event.dayparts, when), _humidity_note(event.temps, when))
-        if note
-    ]
+    humidity_note = _humidity_note(event.temps, when)
 
     if event.is_release:
         lines = [_pick(RELEASE_HEADLINES, when), ""]
         lines += [f"- {line}" for line in RELEASE_GUIDE]
     elif event.is_warning:
-        lines = [_pick(WARNING_HEADLINES.get(event.kind, []), when), *extras]
+        # 폭염 + 비는 별도 시나리오다. 그 밖에는 강수를 언급하지 않는다.
+        rain_note = _heat_rain_note(event, when)
+        lines = [_pick(WARNING_HEADLINES.get(event.kind, []), when)]
+        lines += [note for note in (rain_note, humidity_note) if note]
         lines += ["", "**이렇게 해요**"]
         lines += [f"- {line}" for line in ACTION_GUIDE.get(event.kind, [])]
-        if _has_rain(event.dayparts):
-            lines.append("- 비 와도 더위는 그대로예요. 우산 쓰고도 물 챙기세요 ☔")
+        if rain_note:
+            lines.append(f"- {HEAT_WITH_RAIN_GUIDE}")
     else:
         _, _, _, headlines, guide = _forecast_level(event.temps)
-        lines = [_pick(headlines, when), *extras, ""]
-        lines += [f"- {line}" for line in guide]
+        lines = [_pick(headlines, when)]
+        if humidity_note:
+            lines.append(humidity_note)
+        lines += [""] + [f"- {line}" for line in guide]
     return "\n".join(lines)
-
-
-def _has_rain(dayparts) -> bool:
-    return any(part.rain for part in dayparts)
 
 
 def _fields(event: HeatEvent) -> list[dict]:
@@ -324,26 +273,38 @@ def _fields(event: HeatEvent) -> list[dict]:
     값이 없으면 필드를 아예 만들지 않는다. 추정치로 채우지 않는다.
     """
     fields = []
-    today_max = event.temps.get("today_max")
-    today_min = event.temps.get("today_min")
-    humidity = event.temps.get("humidity")
+    temps = event.temps
 
-    if today_max is not None:
-        fields.append({"title": "낮 최고", "value": f"{today_max:.0f}℃", "short": True})
-    if today_min is not None:
-        fields.append({"title": "아침 최저", "value": f"{today_min:.0f}℃", "short": True})
+    # TMX/TMN이 있으면 그대로, 없으면 남은 시간 기준임을 이름표에 밝힌다.
+    for daily, rest, daily_label, rest_label in (
+        ("today_max", "rest_max", "낮 최고", "남은 시간 최고"),
+        ("today_min", "rest_min", "아침 최저", "남은 시간 최저"),
+    ):
+        if temps.get(daily) is not None:
+            fields.append(
+                {"title": daily_label, "value": f"{temps[daily]:.0f}℃", "short": True}
+            )
+        elif temps.get(rest) is not None:
+            fields.append(
+                {"title": rest_label, "value": f"{temps[rest]:.0f}℃", "short": True}
+            )
+
+    humidity = temps.get("humidity")
     if humidity is not None:
         name, _ = humidity_band(humidity)
         fields.append(
             {"title": "습도", "value": f"{humidity:.0f}% · {name}", "short": True}
         )
 
-    pop = max_pop(list(event.dayparts))
-    if event.dayparts:
-        fields.append({"title": "강수확률", "value": f"최대 {pop}%", "short": True})
-    daypart_line = _daypart_line(event.dayparts)
-    if daypart_line:
-        fields.append({"title": "시간대", "value": daypart_line, "short": False})
+    # 강수는 폭염과 겹칠 때만 알린다.
+    if event.is_warning and event.rain:
+        fields.append(
+            {
+                "title": "강수",
+                "value": f"{event.rain.kind} · 최대 {event.rain.pop}%",
+                "short": True,
+            }
+        )
     return fields
 
 

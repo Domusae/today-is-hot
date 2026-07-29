@@ -48,18 +48,18 @@ def collect_events(service_key: str) -> list[HeatEvent]:
         forecast = kma.fetch_forecast(service_key, region.nx, region.ny)
         temps = detector.summarize_temps(forecast, now)
 
-        dayparts = tuple(detector.summarize_dayparts(forecast, now))
+        rain = detector.summarize_rain(forecast, now)
 
         current, previous, tm_fc = _status_pair(service_key, region, now)
         found = [
             # 특보 카드에도 기온을 같이 실어 보여준다.
-            replace(event, temps=temps, dayparts=dayparts)
+            replace(event, temps=temps, rain=rain)
             for event in detector.build_events(current, previous, region, tm_fc, now)
         ]
         # 특보가 없는 날에도 가벼운 더위 안내는 매일 나간다.
         events.extend(
             found
-            or [replace(detector.forecast_event(region, temps, now), dayparts=dayparts)]
+            or [detector.forecast_event(region, temps, now)]
         )
     return events
 
