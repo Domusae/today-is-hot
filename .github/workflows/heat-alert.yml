@@ -7,10 +7,14 @@ on:
     - cron: "*/30 21-23,0-14 * * *"
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "전송하지 않고 페이로드만 출력"
-        type: boolean
-        default: false
+      mode:
+        description: "실행 모드"
+        type: choice
+        default: dry-run
+        options:
+          - dry-run # 감지만 하고 전송하지 않음
+          - send # 실제 발송
+          - probe # 기상청 원본 응답 확인 (파싱이 의심될 때)
 
 concurrency:
   group: heat-alert
@@ -36,15 +40,16 @@ jobs:
           KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
           MM_WEBHOOK_URL: ${{ secrets.MM_WEBHOOK_URL }}
           TZ: Asia/Seoul
+        # 스케줄 실행에는 inputs가 없으므로 기본값 send로 떨어진다.
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python main.py --dry-run
-          else
-            python main.py
-          fi
+          case "${{ inputs.mode || 'send' }}" in
+            probe)    python probe.py warn ;;
+            dry-run)  python main.py --dry-run ;;
+            *)        python main.py ;;
+          esac
 
       - name: 발송 기록 커밋
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ (inputs.mode || 'send') == 'send' }}
         run: |
           if git diff --quiet -- state/sent.json; then
             echo "변경 없음"
