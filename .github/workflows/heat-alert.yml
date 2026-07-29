@@ -2,7 +2,8 @@ name: 오늘도 덥습니다
 
 on:
   schedule:
-    # 매일 아침 9시(KST) 1회. cron은 UTC 기준이라 00:00 UTC = 09:00 KST.
+    # 평일(월~금) 아침 9시(KST) 1회. cron은 UTC 기준이라 00:00 UTC = 09:00 KST.
+    # 00:00 UTC + 9h는 같은 날이라 UTC 요일과 KST 요일이 어긋나지 않는다.
     # GitHub Actions의 스케줄은 정시에 뜨지 않고 수 분~수십 분 밀릴 수 있다.
     - cron: "0 0 * * 1-5"
   workflow_dispatch:
