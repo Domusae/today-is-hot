@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .comfort import apparent_temperature
 from .config import Region
 from .status import heat_warnings_for
 
@@ -135,10 +136,13 @@ def _to_float(value: str | None) -> float | None:
 
 
 def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str, float]:
-    """카드에 함께 보여줄 오늘의 최고/최저기온을 뽑는다.
+    """오늘의 최고/최저기온, 그리고 체감온도가 가장 높은 시각의 상태를 뽑는다.
 
     TMX/TMN은 해당 시각이 지나면 예보에서 빠지므로, 없으면 남아 있는
     시간별 기온(TMP)의 최대/최소로 대신한다.
+
+    체감온도는 같은 시각의 TMP와 REH가 짝으로 있어야 계산할 수 있으므로,
+    시간대별로 계산해 가장 높은 값을 고른다. 그 시각의 습도도 함께 남긴다.
     """
     now = now or datetime.now()
     table = _parse_forecast(items)
@@ -156,4 +160,22 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
     if hourly:
         result.setdefault("today_max", max(hourly))
         result.setdefault("today_min", min(hourly))
+
+    peak = _peak_apparent(today)
+    if peak:
+        result["feels_max"], result["humidity"] = peak
     return result
+
+
+def _peak_apparent(day: dict[str, dict[str, str]]) -> tuple[float, float] | None:
+    """하루 중 체감온도가 가장 높은 시각의 (체감온도, 그때 습도)."""
+    best: tuple[float, float] | None = None
+    for slot in day.values():
+        temp = _to_float(slot.get("TMP"))
+        humidity = _to_float(slot.get("REH"))
+        if temp is None or humidity is None:
+            continue
+        feels = apparent_temperature(temp, humidity)
+        if best is None or feels > best[0]:
+            best = (feels, humidity)
+    return best

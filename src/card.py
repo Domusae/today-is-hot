@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from .comfort import humidity_band
 from .detector import HeatEvent
 
 CAMPAIGN = "오늘도 덥습니다"
@@ -82,7 +83,8 @@ RELEASE_GUIDE = [
     "물 많이 마시고 오늘은 좀 일찍 자요 😴",
 ]
 
-# 특보가 없는 날, 낮 최고기온으로 정하는 등급.
+# 특보가 없는 날의 더위 등급. 기준은 기온이 아니라 **체감온도**다
+# (기상청도 체감온도로 폭염특보를 낸다).
 # (최저 기준온도, 등급명, 아이콘, 색상, [멘트들], [안내])
 FORECAST_LEVELS = (
     (
@@ -92,9 +94,9 @@ FORECAST_LEVELS = (
         "#D0021B",
         [
             "밖은 지금 프라이팬이에요 🍳 진심으로 나가지 마세요",
-            "35도… 이건 날씨가 아니라 공격인 것 같아요",
+            "체감 35도… 이건 날씨가 아니라 공격인 것 같아요",
             "오늘의 목표는 생산성이 아니라 생존입니다",
-            "특보는 없는데 기온은 특보급이에요. 이게 무슨 일이죠",
+            "특보는 없는데 체감은 특보급이에요. 이게 무슨 일이죠",
         ],
         [
             "특보만 없지 체감은 똑같아요. 한낮 외출은 미루세요",
@@ -124,7 +126,7 @@ FORECAST_LEVELS = (
         "#F8B94B",
         [
             "덥긴 한데 아직 화나는 정도는 아니에요",
-            "30도. 여름이 슬슬 몸 푸는 중입니다 😮‍💨",
+            "여름이 슬슬 몸 푸는 중입니다 😮‍💨",
             "선풍기로 버틸 수 있는 마지노선이에요",
             "가방에 물병 하나 챙기면 딱 좋은 날",
         ],
@@ -162,11 +164,11 @@ FORECAST_LEVELS = (
 )
 
 UNKNOWN_LEVEL = (
-    "기온 미확인",
+    "날씨 미확인",
     "🌤",
     "#8A8A8A",
-    ["오늘 기온을 못 가져왔어요… 그래도 덥겠죠? 🤔"],
-    ["기상청에서 오늘 기온을 못 받아왔어요", "그래도 물은 꼭 챙겨 드세요"],
+    ["오늘 날씨를 못 가져왔어요… 그래도 덥겠죠? 🤔"],
+    ["기상청에서 오늘 예보를 못 받아왔어요", "그래도 물은 꼭 챙겨 드세요"],
 )
 
 
@@ -181,14 +183,33 @@ def _pick(pool: list[str], when: datetime | date | None = None) -> str:
 
 
 def _forecast_level(temps: dict[str, float]):
-    """낮 최고기온으로 등급 튜플을 고른다. 기온이 없으면 미확인 등급."""
-    today_max = temps.get("today_max")
-    if today_max is None:
+    """더위 등급을 고른다.
+
+    기상청이 폭염특보를 체감온도로 내므로 등급도 체감온도를 우선한다.
+    습도를 못 구해 체감온도가 없으면 기온으로 대신한다.
+    """
+    reference = temps.get("feels_max", temps.get("today_max"))
+    if reference is None:
         return UNKNOWN_LEVEL
     for threshold, *level in FORECAST_LEVELS:
-        if today_max >= threshold:
+        if reference >= threshold:
             return tuple(level)
     return UNKNOWN_LEVEL
+
+
+def _humidity_note(temps: dict[str, float], when: datetime | None = None) -> str:
+    """습도 한 줄. 체감이 기온보다 높으면 그 격차를 같이 짚어준다."""
+    humidity = temps.get("humidity")
+    if humidity is None:
+        return ""
+
+    _, notes = humidity_band(humidity)
+    line = _pick(notes, when).format(rh=humidity)
+
+    feels, actual = temps.get("feels_max"), temps.get("today_max")
+    if feels is not None and actual is not None and feels - actual >= 1.5:
+        line += f" 기온은 {actual:.0f}도인데 체감은 {feels:.0f}도예요."
+    return line
 
 
 def _title(event: HeatEvent) -> str:
@@ -212,26 +233,43 @@ def _color(event: HeatEvent) -> str:
 
 
 def _body(event: HeatEvent, when: datetime | None = None) -> str:
+    humidity_note = _humidity_note(event.temps, when)
+
     if event.is_release:
         lines = [_pick(RELEASE_HEADLINES, when), ""]
         lines += [f"- {line}" for line in RELEASE_GUIDE]
     elif event.is_warning:
-        lines = [_pick(WARNING_HEADLINES.get(event.kind, []), when), ""]
-        lines.append("**이렇게 해요**")
+        lines = [_pick(WARNING_HEADLINES.get(event.kind, []), when)]
+        if humidity_note:
+            lines.append(humidity_note)
+        lines += ["", "**이렇게 해요**"]
         lines += [f"- {line}" for line in ACTION_GUIDE.get(event.kind, [])]
     else:
         _, _, _, headlines, guide = _forecast_level(event.temps)
-        lines = [_pick(headlines, when), ""] + [f"- {line}" for line in guide]
+        lines = [_pick(headlines, when)]
+        if humidity_note:
+            lines.append(humidity_note)
+        lines += [""] + [f"- {line}" for line in guide]
     return "\n".join(lines)
 
 
 def _fields(event: HeatEvent) -> list[dict]:
-    """지역은 늘 같으므로 표시하지 않는다. 기온만 보여준다."""
+    """지역은 늘 같으므로 표시하지 않는다. 기온·체감·습도만 보여준다."""
     fields = []
     today_max = event.temps.get("today_max")
     today_min = event.temps.get("today_min")
+    feels_max = event.temps.get("feels_max")
+    humidity = event.temps.get("humidity")
+
     if today_max is not None:
         fields.append({"title": "낮 최고", "value": f"{today_max:.0f}℃", "short": True})
+    if feels_max is not None:
+        fields.append({"title": "체감 최고", "value": f"{feels_max:.0f}℃", "short": True})
+    if humidity is not None:
+        name, _ = humidity_band(humidity)
+        fields.append(
+            {"title": "습도", "value": f"{humidity:.0f}% · {name}", "short": True}
+        )
     if today_min is not None:
         fields.append({"title": "아침 최저", "value": f"{today_min:.0f}℃", "short": True})
     return fields
