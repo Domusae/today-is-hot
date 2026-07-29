@@ -15,6 +15,8 @@ TIMEOUT = 15
 # 단기예보 발표시각(정시). 발표 후 API 반영까지 시간이 걸려 45분 여유를 둔다.
 FCST_BASE_HOURS = (23, 20, 17, 14, 11, 8, 5, 2)
 FCST_PUBLISH_DELAY = timedelta(minutes=45)
+# 기상특보 목록은 오늘 기준 6일 전까지만 조회할 수 있다.
+MAX_LOOKBACK_DAYS = 6
 
 
 class KmaError(RuntimeError):
@@ -50,7 +52,11 @@ def _items(body: dict) -> list[dict]:
 
 
 def fetch_warnings(service_key: str, stn_id: str, days: int = 2) -> list[dict]:
-    """최근 며칠간 발표된 기상특보 목록을 조회한다."""
+    """최근 며칠간 발표된 기상특보 목록을 조회한다.
+
+    기상청이 오늘 기준 6일 전까지만 허용하므로(초과 시 resultCode 99) 범위를 잘라낸다.
+    """
+    days = min(days, MAX_LOOKBACK_DAYS)
     today = datetime.now()
     body = _get(
         "WthrWrnInfoService/getWthrWrnList",
