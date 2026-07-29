@@ -33,9 +33,11 @@ class TestApparentTemperature:
         values = [apparent_temperature(t, 60.0) for t in (28, 31, 34, 37)]
         assert values == sorted(values)
 
-    def test_matches_kma_worked_example(self):
-        # 기온 31℃ / 습도 70% → 체감 약 33~35℃ 구간
-        assert apparent_temperature(31.0, 70.0) == pytest.approx(34.0, abs=1.5)
+    def test_stays_in_a_plausible_range(self):
+        # 기상청 공식 대조표로 검증한 값이 아니라, 산식이 상식적인 범위를
+        # 벗어나지 않는지만 본다. 습하면 기온보다 높고, 터무니없이 높지는 않다.
+        feels = apparent_temperature(31.0, 70.0)
+        assert 31.0 < feels < 36.0
 
 
 class TestHumidityBand:

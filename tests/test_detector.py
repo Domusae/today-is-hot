@@ -1,6 +1,8 @@
+from dataclasses import replace
 from datetime import datetime
 
 from src.card import _forecast_level, _pick, build_attachment, build_payload
+from src.comfort import humidity_band
 from src.config import Region
 from src.detector import build_events, forecast_event, summarize_temps
 from src.state import filter_new, mark, prune
@@ -272,14 +274,22 @@ class TestHumidityNote:
     def test_note_appears_in_forecast_card(self):
         temps = {"today_max": 31.0, "feels_max": 34.0, "humidity": 85.0}
         text = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["text"]
-        assert "85" in text
+        assert any(note.format(rh=85.0) in text for note in humidity_band(85.0)[1])
 
     def test_note_appears_in_warning_card(self):
         event = build_events(WARNING_T6, None, GANGNAM, None, NOW)[0]
-        from dataclasses import replace
+        event = replace(
+            event, temps={"today_max": 33.0, "feels_max": 37.0, "humidity": 82.0}
+        )
+        text = build_attachment(event, NOW)["text"]
+        assert any(note.format(rh=82.0) in text for note in humidity_band(82.0)[1])
 
-        event = replace(event, temps={"today_max": 33.0, "feels_max": 37.0, "humidity": 82.0})
-        assert "82" in build_attachment(event, NOW)["text"]
+    def test_humidity_number_reaches_the_reader_somewhere(self):
+        # 멘트에 숫자가 없는 문장도 있으므로, 필드로는 반드시 전달돼야 한다.
+        temps = {"today_max": 31.0, "feels_max": 34.0, "humidity": 85.0}
+        attachment = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)
+        rendered = attachment["text"] + str(attachment["fields"])
+        assert "85" in rendered
 
     def test_gap_is_called_out_when_feels_much_hotter(self):
         temps = {"today_max": 31.0, "feels_max": 35.0, "humidity": 85.0}
