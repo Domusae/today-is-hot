@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .config import Region
+from .precip import DayPart
+from .precip import summarize_dayparts as dayparts_of
 from .status import heat_warnings_for
 
 RELEASE = "해제"
@@ -25,6 +27,7 @@ class HeatEvent:
     key: str  # 중복 발송 방지용 고유키 (하루 1회 발송되도록 날짜 포함)
     detail: str = ""
     temps: dict[str, float] = field(default_factory=dict)
+    dayparts: tuple[DayPart, ...] = ()  # 오전/오후/저녁 하늘 상태
     started_today: bool = False  # 오늘 새로 발효된 특보인지
 
     @property
@@ -159,6 +162,13 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
     if humidity is not None:
         result["humidity"] = humidity
     return result
+
+
+def summarize_dayparts(items: list[dict], now: datetime | None = None) -> list[DayPart]:
+    """오늘을 오전·오후·저녁으로 나눈 하늘 상태."""
+    now = now or datetime.now()
+    table = _parse_forecast(items)
+    return dayparts_of(table.get(now.strftime("%Y%m%d"), {}))
 
 
 def _humidity_at_hottest_hour(day: dict[str, dict[str, str]]) -> float | None:
