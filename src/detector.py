@@ -25,7 +25,6 @@ class HeatEvent:
     region: str
     issued_at: str  # 표시용 시각 문자열
     key: str  # 중복 발송 방지용 고유키 (하루 1회 발송되도록 날짜 포함)
-    detail: str = ""
     temps: dict[str, float] = field(default_factory=dict)
     rain: RainOutlook | None = None  # 오늘 강수 예보 (폭염 카드에서만 쓴다)
     started_today: bool = False  # 오늘 새로 발효된 특보인지
@@ -79,7 +78,6 @@ def build_events(
                 region=region.name,
                 issued_at=stamp,
                 key=f"{today}:active:{region.name}:{kind}",
-                detail=f"{kind} {'신규 발효' if is_new else '발효 중'}",
                 started_today=is_new,
             )
         )
@@ -94,7 +92,6 @@ def build_events(
                 region=region.name,
                 issued_at=stamp,
                 key=f"{today}:release:{region.name}:{kind}",
-                detail=f"{kind} 해제",
             )
         )
     return events
@@ -142,10 +139,8 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
 
     **여기서 새 수치를 만들지 않는다.** 기상청이 준 값을 그대로 고르기만 한다.
 
-    - today_max / today_min : TMX / TMN 그대로.
-    - rest_max / rest_min : TMX/TMN이 예보에서 빠졌을 때만 채우는 보조값으로,
-      **남은 시간대 TMP의 최대·최소**다. 일최고/최저와 다른 값이므로
-      키를 분리해 두고, 카드에서도 다른 이름표를 달아 보여준다.
+    - today_max / today_min : TMX / TMN 그대로. 없으면 넣지 않는다.
+      아침 9시 정기 실행 시점에는 둘 다 예보에 남아 있다.
     - humidity : 낮 최고기온 시각의 REH 그대로.
     """
     now = now or datetime.now()
@@ -159,13 +154,6 @@ def summarize_temps(items: list[dict], now: datetime | None = None) -> dict[str,
             if value is not None:
                 result[label] = value
                 break
-
-    hourly = [t for slot in today.values() if (t := _to_float(slot.get("TMP"))) is not None]
-    if hourly:
-        if "today_max" not in result:
-            result["rest_max"] = max(hourly)
-        if "today_min" not in result:
-            result["rest_min"] = min(hourly)
 
     humidity = _humidity_at_hottest_hour(today)
     if humidity is not None:

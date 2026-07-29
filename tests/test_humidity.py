@@ -3,7 +3,7 @@
 체감온도 계산은 제거했다. 단기예보 API가 체감온도를 주지 않아
 직접 계산하면 기상청 공식 값과 어긋날 수 있기 때문이다.
 """
-from src.comfort import humidity_band
+from src.humidity import humidity_band
 
 
 class TestHumidityBand:
@@ -35,7 +35,7 @@ class TestHumidityBand:
 
     def test_no_temperature_is_invented(self):
         # 이 모듈은 숫자를 만들어내지 않는다. 분류와 문구만 담당한다.
-        import src.comfort as comfort
+        import src.humidity as humidity_module
 
-        assert not hasattr(comfort, "apparent_temperature")
-        assert not hasattr(comfort, "wet_bulb")
+        assert not hasattr(humidity_module, "apparent_temperature")
+        assert not hasattr(humidity_module, "wet_bulb")

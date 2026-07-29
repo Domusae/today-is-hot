@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from .comfort import humidity_band
+from .humidity import humidity_band
 from .detector import HeatEvent
 
 CAMPAIGN = "오늘도 덥습니다"
@@ -275,19 +275,9 @@ def _fields(event: HeatEvent) -> list[dict]:
     fields = []
     temps = event.temps
 
-    # TMX/TMN이 있으면 그대로, 없으면 남은 시간 기준임을 이름표에 밝힌다.
-    for daily, rest, daily_label, rest_label in (
-        ("today_max", "rest_max", "낮 최고", "남은 시간 최고"),
-        ("today_min", "rest_min", "아침 최저", "남은 시간 최저"),
-    ):
-        if temps.get(daily) is not None:
-            fields.append(
-                {"title": daily_label, "value": f"{temps[daily]:.0f}℃", "short": True}
-            )
-        elif temps.get(rest) is not None:
-            fields.append(
-                {"title": rest_label, "value": f"{temps[rest]:.0f}℃", "short": True}
-            )
+    for key, label in (("today_max", "낮 최고"), ("today_min", "아침 최저")):
+        if temps.get(key) is not None:
+            fields.append({"title": label, "value": f"{temps[key]:.0f}℃", "short": True})
 
     humidity = temps.get("humidity")
     if humidity is not None:

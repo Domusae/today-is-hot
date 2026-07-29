@@ -9,7 +9,7 @@ from src.card import (
     build_attachment,
     build_payload,
 )
-from src.comfort import humidity_band
+from src.humidity import humidity_band
 from src.config import Region
 from src.detector import build_events, forecast_event, summarize_temps
 from src.precip import RainOutlook
@@ -83,15 +83,14 @@ class TestSummarizeTemps:
         ]
         assert summarize_temps(items, NOW) == {"today_max": 36.0, "today_min": 26.0}
 
-    def test_missing_tmx_uses_a_separate_key(self):
+    def test_missing_tmx_is_left_out(self):
         # 시간별 TMP의 최대로 일최고를 추정하면 기상청 값과 달라진다. 넣지 않는다.
         items = [
             fcst("20260729", "1500", "TMP", "34"),
             fcst("20260729", "1800", "TMP", "31"),
         ]
         result = summarize_temps(items, NOW)
-        assert "today_max" not in result and result["rest_max"] == 34.0
-        assert "today_min" not in result and result["rest_min"] == 31.0
+        assert "today_max" not in result and "today_min" not in result
 
     def test_ignores_other_days(self):
         assert summarize_temps([fcst("20260730", "1500", "TMX", "40.0")], NOW) == {}
@@ -134,7 +133,7 @@ class TestSummarizeTemps:
             fcst("20260729", "1500", "REH", "85"),
         ]
         result = summarize_temps(items, NOW)
-        assert set(result) <= {"today_max", "today_min", "rest_max", "rest_min", "humidity"}
+        assert set(result) <= {"today_max", "today_min", "humidity"}
 
 
 class TestForecastLevels:
@@ -367,22 +366,6 @@ class TestTemperatureFields:
         temps = {"today_max": 33.0, "today_min": 26.0}
         titles = [f["title"] for f in build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]]
         assert titles == ["낮 최고", "아침 최저"]
-
-    def test_fallback_values_are_labelled_differently(self):
-        # 일최고가 아니라 남은 시간 기준임을 이름표로 밝힌다.
-        temps = {"rest_max": 31.0, "rest_min": 27.0}
-        fields = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]
-        assert [f["title"] for f in fields] == ["남은 시간 최고", "남은 시간 최저"]
-
-    def test_daily_value_wins_over_fallback(self):
-        temps = {"today_max": 33.0, "rest_max": 31.0}
-        fields = build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]
-        assert fields[0] == {"title": "낮 최고", "value": "33℃", "short": True}
-
-    def test_mixed_case_labels_each_correctly(self):
-        temps = {"today_max": 33.0, "rest_min": 27.0}
-        titles = [f["title"] for f in build_attachment(forecast_event(GANGNAM, temps, NOW), NOW)["fields"]]
-        assert titles == ["낮 최고", "남은 시간 최저"]
 
     def test_no_temperature_no_fields(self):
         assert build_attachment(forecast_event(GANGNAM, {}, NOW), NOW)["fields"] == []

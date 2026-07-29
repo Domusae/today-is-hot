@@ -4,9 +4,6 @@ from dataclasses import dataclass
 
 KMA_BASE = "https://apis.data.go.kr/1360000"
 
-# 폭염 참고 기준: 낮 최고기온
-HEAT_ADVISORY_C = 33.0
-HEAT_WARNING_C = 35.0
 
 # 특보 발효 여부를 판정할 때 며칠치 이력을 재생할지.
 # 폭염경보는 며칠씩 이어지므로 당일(0)만 보면 어제 발효돼 오늘도 유효한 특보를 놓친다.
@@ -57,7 +54,6 @@ class Settings:
     webhook_url: str
     bot_username: str
     bot_icon: str
-    dry_run: bool
 
 
 def load_settings(dry_run: bool = False) -> Settings:
@@ -72,5 +68,4 @@ def load_settings(dry_run: bool = False) -> Settings:
         webhook_url=url,
         bot_username=os.environ.get("MM_BOT_NAME", "오늘도 덥습니다"),
         bot_icon=os.environ.get("MM_BOT_ICON", ":sunny:"),
-        dry_run=dry_run,
     )

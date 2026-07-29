@@ -72,7 +72,6 @@ def demo_events() -> list[HeatEvent]:
             region="서울 강남구",
             issued_at="07월 29일 10시 00분 발효",
             key="demo:1",
-            detail="폭염경보 신규 발효",
             temps={"today_max": 36.0, "today_min": 26.0},
             started_today=True,
         ),
@@ -82,7 +81,6 @@ def demo_events() -> list[HeatEvent]:
             region="서울 강남구",
             issued_at="07월 28일 16시 00분 해제",
             key="demo:2",
-            detail="폭염주의보 해제",
             temps={"today_max": 34.0, "today_min": 25.0},
         ),
         # 특보가 없는 날 카드
