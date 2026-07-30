@@ -1,0 +1,18 @@
+# 임시 진단용. GitHub의 예약(schedule) 트리거가 실제로 발화하는지만 확인한다.
+# 부작용이 없도록 아무것도 조회하지 않고 시각만 찍는다.
+# 확인이 끝나면 이 파일은 삭제한다.
+name: cron-probe
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # 5분마다 (GitHub 최소 간격)
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 발화 시각 기록
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "fired_at_utc=$(date -u '+%Y-%m-%d %H:%M:%S')"
